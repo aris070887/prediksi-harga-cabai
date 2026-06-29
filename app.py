@@ -269,9 +269,9 @@ test_dates = df_prov['Tanggal'].iloc[-len(best_pred):]
 col1, col2 = st.columns([7, 3])
 
 with col1:
-    st.subheader(f"ðŸ“Š Analisis Spasio-Temporal: {prov_terpilih}")
+    st.subheader(f"Analisis Spasio-Temporal: {prov_terpilih}")
 
-    st.markdown(f"##### ðŸ—ºï¸ Visualisasi Peta ({minggu_peta})")
+    st.markdown(f"##### Visualisasi Peta ({minggu_peta})")
     df_map = df_all[df_all['Tanggal_Str'] == minggu_peta]
 
     if jenis_peta == "Deviasi thd HET Resmi":
