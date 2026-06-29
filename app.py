@@ -290,7 +290,7 @@ with col1:
         fig_map.update_geos(fitbounds="locations", visible=False)
         st.plotly_chart(fig_map, use_container_width=True)
 
-    st.markdown(f"##### ðŸ“ˆ Proyeksi & Forecasting 2 Bulan ({best_model_name})")
+    st.markdown(f"##### Proyeksi & Forecasting 2 Bulan ({best_model_name})")
     fig_line = go.Figure()
     fig_line.add_trace(go.Scatter(x=df_prov['Tanggal'], y=df_prov['Harga_Riil'], mode='lines', name='Harga Riil', line=dict(color='blue')))
     fig_line.add_trace(go.Scatter(x=test_dates, y=best_pred, mode='lines', name='Validasi Model', line=dict(color='orange', dash='dash')))
@@ -305,7 +305,7 @@ with col1:
     fig_line.update_layout(margin=dict(t=10, b=10), height=350)
     st.plotly_chart(fig_line, use_container_width=True)
 
-    st.markdown("###### ðŸ“‘ Tabel Komparasi Validasi Ilmiah Performa Model")
+    st.markdown("###### Tabel Komparasi Validasi Ilmiah Performa Model")
     metrics_list = []
     for model_name, model_data in models_eval.items():
         metrics_list.append({
@@ -320,7 +320,7 @@ with col1:
 
     col_ext1, col_ext2 = st.columns(2)
     with col_ext1:
-        st.markdown(f"##### ðŸŒ§ï¸ Curah Hujan & Momen")
+        st.markdown(f"##### Curah Hujan & Momen")
         fig_ext = go.Figure()
         fig_ext.add_trace(go.Bar(x=df_prov['Tanggal'], y=df_prov['Curah_Hujan'], name='Curah Hujan (mm)', marker_color='lightblue'))
         df_hbkn = df_prov[df_prov['hbkn'] == 1]
