@@ -1,0 +1,11 @@
+streamlit==1.29.0
+pandas
+numpy
+plotly
+scikit-learn
+tensorflow
+openai
+geopandas
+requests
+shapely
+openpyxl
