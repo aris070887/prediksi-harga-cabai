@@ -141,7 +141,7 @@ with st.sidebar:
     status_filter = st.multiselect("Status HET:", ["Aman", "Melanggar"], default=["Aman", "Melanggar"])
 
     st.markdown("---")
-    st.header("ðŸ—ºï¸ Filter Peta Nasional")
+    st.header("Filter Peta Nasional")
     list_minggu = sorted(df_all['Tanggal_Str'].unique(), reverse=True)
     minggu_peta = st.selectbox("Pilih Minggu Peta:", list_minggu)
 
