@@ -342,9 +342,9 @@ with col1:
 with col2:
     col_judul, col_btn = st.columns([6, 4])
     with col_judul:
-        st.subheader("ðŸ¤– Chat AI")
+        st.subheader("Chat AI")
     with col_btn:
-        if st.button("ðŸ—‘ï¸ Bersihkan", use_container_width=True):
+        if st.button("Bersihkan", use_container_width=True):
             st.session_state.messages = []
             st.rerun()
 
