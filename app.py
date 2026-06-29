@@ -312,7 +312,7 @@ with col1:
             "Model Algoritma": model_name,
             "Mean Absolute Error (MAE)": model_data['mae'],
             "Margin Kesalahan (Error)": f"± Rp {model_data['mae']:,.0f}",
-            "Status Seleksi": "ðŸ† TERBAIK (Dipilih Otomatis)" if model_name == best_model_name else "Alternatif"
+            "Status Seleksi": "Model TERBAIK (Dipilih Otomatis)" if model_name == best_model_name else "Alternatif"
         })
     df_metrics = pd.DataFrame(metrics_list).sort_values(by="Mean Absolute Error (MAE)").reset_index(drop=True)
     df_metrics["Mean Absolute Error (MAE)"] = df_metrics["Mean Absolute Error (MAE)"].map(lambda x: f"Rp {x:,.2f}")
