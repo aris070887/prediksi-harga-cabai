@@ -19,7 +19,7 @@ warnings.filterwarnings('ignore')
 
 # Konfigurasi Halaman Streamlit
 st.set_page_config(page_title="AI Prediksi Harga Cabai Nasional", layout="wide", page_icon="ðŸŒ¶ï¸")
-st.title("ðŸŒ¶ï¸ Sistem Prediksi Harga Cabai Mingguan & Konsultan AI")
+st.title("Sistem Prediksi Harga Cabai Mingguan & Konsultan AI")
 
 # --- 1A. LOAD GEOJSON DENGAN GEOPANDAS + PERBAIKAN TOPOLOGI ---
 @st.cache_data
