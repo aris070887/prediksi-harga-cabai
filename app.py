@@ -17,30 +17,28 @@ from openai import OpenAI
 
 warnings.filterwarnings('ignore')
 
-# Konfigurasi Halaman Streamlit
 st.set_page_config(page_title="AI Prediksi Harga Cabai Nasional", layout="wide", page_icon="🌶️")
 st.title("🌶️ Sistem Prediksi Harga Cabai Mingguan & Konsultan AI")
 
-# --- 1A. LOAD GEOJSON DENGAN GEOPANDAS + PERBAIKAN TOPOLOGI ---
+# --- 1A. LOAD GEOJSON DENGAN GEOPANDAS ---
 @st.cache_data
 def load_geojson():
     url = "https://raw.githubusercontent.com/ans-4175/peta-indonesia-geojson/master/indonesia-prov.geojson"
-    gdf = gpd.read_file(url)
+    try:
+        gdf = gpd.read_file(url)
+    except Exception as e:
+        st.error(f"Gagal memuat peta GeoJSON dari GitHub: {e}")
+        st.stop()
 
     def bersihkan_nama(nama):
         if not nama: return "UNKNOWN"
         nama = str(nama).upper().strip()
         kamus = {
-            'JAKARTA RAYA': 'DKI JAKARTA',
-            'DAERAH ISTIMEWA YOGYAKARTA': 'DI YOGYAKARTA',
-            'BANGKA BELITUNG': 'KEP. BANGKA BELITUNG',
-            'KEPULAUAN BANGKA BELITUNG': 'KEP. BANGKA BELITUNG',
-            'KEPULAUAN RIAU': 'KEP. RIAU',
-            'SUMATRA UTARA': 'SUMATERA UTARA',
-            'SUMATRA BARAT': 'SUMATERA BARAT',
-            'SUMATRA SELATAN': 'SUMATERA SELATAN',
-            'DI. ACEH': 'ACEH',
-            'NUSATENGGARA BARAT': 'NUSA TENGGARA BARAT',
+            'JAKARTA RAYA': 'DKI JAKARTA', 'DAERAH ISTIMEWA YOGYAKARTA': 'DI YOGYAKARTA',
+            'BANGKA BELITUNG': 'KEP. BANGKA BELITUNG', 'KEPULAUAN BANGKA BELITUNG': 'KEP. BANGKA BELITUNG',
+            'KEPULAUAN RIAU': 'KEP. RIAU', 'SUMATRA UTARA': 'SUMATERA UTARA',
+            'SUMATRA BARAT': 'SUMATERA BARAT', 'SUMATRA SELATAN': 'SUMATERA SELATAN',
+            'DI. ACEH': 'ACEH', 'NUSATENGGARA BARAT': 'NUSA TENGGARA BARAT',
             'NUSATENGGARA TIMUR': 'NUSA TENGGARA TIMUR'
         }
         return kamus.get(nama, nama)
@@ -53,22 +51,41 @@ def load_geojson():
 # --- 1B. LOAD DATA & IMPUTASI GRID WAKTU ---
 @st.cache_data
 def load_and_preprocess_data():
-    prefix = 'sample_data/' if os.path.exists('sample_data/Cabai Rawit Merah_Konsumen_Harian.csv') else ''
+    # Menangani variasi path di server Streamlit Cloud
+    base_dir = 'sample_data'
+    
+    file_cabai = os.path.join(base_dir, 'Cabai Rawit Merah_Konsumen_Harian.csv')
+    file_hujan = os.path.join(base_dir, 'Curah_Hujan_Bulanan.csv')
+    file_hbkn = os.path.join(base_dir, 'HBKN_Bulanan.csv')
 
-    df_cabai = pd.read_csv(prefix + 'Cabai Rawit Merah_Konsumen_Harian.csv')
-    df_hujan = pd.read_csv(prefix + 'Curah_Hujan_Bulanan.csv')
-    df_hbkn = pd.read_csv(prefix + 'HBKN_Bulanan.csv')
+    # Proteksi jika file tidak ditemukan
+    if not os.path.exists(file_cabai) or not os.path.exists(file_hujan) or not os.path.exists(file_hbkn):
+        st.error(f"Kritis: File data tidak ditemukan di folder 'sample_data/'. Silakan periksa kembali berkas Anda di GitHub.")
+        st.stop()
+
+    df_cabai = pd.read_csv(file_cabai)
+    df_hujan = pd.read_csv(file_hujan)
+    df_hbkn = pd.read_csv(file_hbkn)
+
+    # Standardisasi nama kolom menjadi lowercase untuk menghindari KeyError
+    df_cabai.columns = df_cabai.columns.str.lower().str.strip()
+    df_hujan.columns = df_hujan.columns.str.strip() # Tetap jaga camel case untuk hujan
+    df_hbkn.columns = df_hbkn.columns.str.lower().str.strip()
+
+    # Cek keberadaan kolom utama cabai
+    if 'harga' not in df_cabai.columns or 'tanggal' not in df_cabai.columns or 'provinsi' not in df_cabai.columns:
+        st.error(f"Kolom pada file Cabai tidak sesuai. Ditemukan: {list(df_cabai.columns)}. Harus ada: 'provinsi', 'tanggal', 'harga'")
+        st.stop()
 
     df_cabai['harga'] = df_cabai['harga'].astype(str).str.replace(r'[^\d]', '', regex=True)
     df_cabai['harga'] = pd.to_numeric(df_cabai['harga'], errors='coerce')
     df_cabai = df_cabai.dropna(subset=['harga'])
-    df_cabai['tanggal'] = pd.to_datetime(df_cabai['tanggal'])
+    df_cabai['tanggal'] = pd.to_datetime(df_cabai['tanggal'], errors='coerce')
+    df_cabai = df_cabai.dropna(subset=['tanggal'])
 
     koreksi_papua = {
-        'PAPUA BARAT DAYA': 'PAPUA BARAT',
-        'PAPUA SELATAN': 'PAPUA',
-        'PAPUA TENGAH': 'PAPUA',
-        'PAPUA PEGUNUNGAN': 'PAPUA'
+        'PAPUA BARAT DAYA': 'PAPUA BARAT', 'PAPUA SELATAN': 'PAPUA',
+        'PAPUA TENGAH': 'PAPUA', 'PAPUA PEGUNUNGAN': 'PAPUA'
     }
     df_cabai['provinsi'] = df_cabai['provinsi'].astype(str).str.upper().str.strip().replace(koreksi_papua)
 
@@ -78,11 +95,18 @@ def load_and_preprocess_data():
     all_dates = df_cabai_weekly['tanggal'].unique()
     idx = pd.MultiIndex.from_product([all_provs, all_dates], names=['provinsi', 'tanggal'])
     df_cabai_weekly = df_cabai_weekly.set_index(['provinsi', 'tanggal']).reindex(idx).reset_index()
-
     df_cabai_weekly = df_cabai_weekly.sort_values(['provinsi', 'tanggal'])
     df_cabai_weekly['harga'] = df_cabai_weekly.groupby('provinsi')['harga'].transform(lambda x: x.ffill().bfill())
 
-    df_hbkn['tanggal'] = pd.to_datetime(df_hbkn['tanggal'])
+    df_hbkn['tanggal'] = pd.to_datetime(df_hbkn['tanggal'], errors='coerce')
+    df_hbkn = df_hbkn.dropna(subset=['tanggal'])
+    
+    # Cek kolom HBKN
+    if 'hbkn' not in df_hbkn.columns: 
+        df_hbkn['hbkn'] = 0
+    if 'keterangan' not in df_hbkn.columns:
+        df_hbkn['keterangan'] = 'Normal'
+
     df_hbkn_weekly = df_hbkn.groupby(pd.Grouper(key='tanggal', freq='W-MON')).agg({
         'hbkn': 'max',
         'keterangan': lambda x: 'Normal' if all(x.astype(str).str.lower() == 'tidak ada') else x[x.astype(str).str.lower() != 'tidak ada'].iloc[0]
@@ -93,20 +117,27 @@ def load_and_preprocess_data():
     df_weekly['keterangan'] = df_weekly['keterangan'].fillna('Normal')
 
     bulan_map = {'Januari': 1, 'Februari': 2, 'Maret': 3, 'April': 4, 'Mei': 5, 'Juni': 6, 'Juli': 7, 'Agustus': 8, 'September': 9, 'Oktober': 10, 'November': 11, 'Desember': 12}
-    df_hujan['Bulan'] = df_hujan['Bulan'].map(bulan_map)
-    df_hujan['Nama Provinsi'] = df_hujan['Nama Provinsi'].astype(str).str.upper().str.strip().replace(koreksi_papua)
+    
+    # Cek kolom Hujan
+    if 'Bulan' in df_hujan.columns:
+        df_hujan['Bulan'] = df_hujan['Bulan'].map(bulan_map).fillna(1)
+    else:
+        df_hujan['Bulan'] = 1
 
-    df_hujan['Curah Hujan'] = df_hujan['Curah Hujan'].astype(str).str.replace(',', '.', regex=False)
-    df_hujan['Curah Hujan'] = pd.to_numeric(df_hujan['Curah Hujan'], errors='coerce')
+    prov_col_hujan = 'Nama Provinsi' if 'Nama Provinsi' in df_hujan.columns else df_hujan.columns[0]
+    df_hujan['Nama Provinsi'] = df_hujan[prov_col_hujan].astype(str).str.upper().str.strip().replace(koreksi_papua)
 
-    df_hujan['Tahun'] = df_hujan['Tahun'].astype(int)
+    rain_col = 'Curah Hujan' if 'Curah Hujan' in df_hujan.columns else df_hujan.columns[-1]
+    df_hujan['Curah Hujan'] = df_hujan[rain_col].astype(str).str.replace(',', '.', regex=False)
+    df_hujan['Curah Hujan'] = pd.to_numeric(df_hujan['Curah Hujan'], errors='coerce').fillna(0)
+
+    df_hujan['Tahun'] = pd.to_numeric(df_hujan['Tahun'], errors='coerce').fillna(2024).astype(int)
     df_hujan['Hari'] = 15
-    df_hujan['tanggal'] = pd.to_datetime(df_hujan[['Tahun', 'Bulan', 'Hari']].rename(columns={'Tahun':'year', 'Bulan':'month', 'Hari':'day'}))
+    df_hujan['tanggal'] = pd.to_datetime(df_hujan[['Tahun', 'Bulan', 'Hari']].rename(columns={'Tahun':'year', 'Bulan':'month', 'Hari':'day'}), errors='coerce')
     df_hujan_proxy = df_hujan[['Nama Provinsi', 'tanggal', 'Curah Hujan']].rename(columns={'Nama Provinsi': 'provinsi'})
 
     df_combined = pd.concat([df_weekly, df_hujan_proxy], ignore_index=True)
     df_combined = df_combined.sort_values(['provinsi', 'tanggal']).reset_index(drop=True)
-
     df_combined['Curah_Hujan'] = df_combined.groupby('provinsi')['Curah Hujan'].transform(lambda x: x.interpolate(method='linear').ffill().bfill())
 
     df_final = df_combined.dropna(subset=['harga']).reset_index(drop=True)
@@ -146,19 +177,17 @@ with st.sidebar:
     minggu_peta = st.selectbox("Pilih Minggu Peta:", list_minggu)
 
     jenis_peta = st.selectbox("Tampilkan Metrik Peta Berdasarkan:", [
-        "Deviasi thd HET Resmi",
-        "Deviasi thd Rata-rata Nasional",
-        "Deviasi thd Harga Minggu Lalu"
+        "Deviasi thd HET Resmi", "Deviasi thd Rata-rata Nasional", "Deviasi thd Harga Minggu Lalu"
     ])
 
     df_filtered = df_all[(df_all['Provinsi'] == prov_terpilih) & (df_all['Status_HET'].isin(status_filter))]
 
 if df_filtered.empty:
-    st.warning("Data tidak ditemukan berdasarkan filter yang dipilih.")
+    st.warning("Data tidak ditemukan berdasarkan filter.")
     st.stop()
 
-# --- 3. PIPELINE MACHINE LEARNING CYCLICAL ENCODING & FORECASTING ---
-@st.cache_resource(show_spinner="Melatih AI Prediktif dengan Cyclical Encoding...")
+# --- 3. PIPELINE MACHINE LEARNING ---
+@st.cache_resource(show_spinner="Melatih AI Prediktif...")
 def train_and_evaluate_models(df_prov):
     df_prov = df_prov.sort_values('Tanggal').reset_index(drop=True)
     df_ml = pd.get_dummies(df_prov[['Curah_Hujan', 'Momen']], drop_first=True)
@@ -176,14 +205,12 @@ def train_and_evaluate_models(df_prov):
     y_train, y_test = y[:split_idx], y[split_idx:]
 
     rf = RandomForestRegressor(n_estimators=50, random_state=42).fit(X_train, y_train)
-
     feat_imps = rf.feature_importances_
     df_feat_raw = pd.DataFrame({'Faktor': feat_names, 'Kepentingan': feat_imps})
 
     bobot_bulan = df_feat_raw[df_feat_raw['Faktor'].isin(['Bulan_sin', 'Bulan_cos'])]['Kepentingan'].sum()
     df_feat = df_feat_raw[~df_feat_raw['Faktor'].isin(['Bulan_sin', 'Bulan_cos'])].copy()
     df_feat = pd.concat([df_feat, pd.DataFrame({'Faktor': ['Siklus Musiman (Bulan)'], 'Kepentingan': [bobot_bulan]})])
-
     df_feat['Faktor'] = df_feat['Faktor'].str.replace('Momen_', 'Momen: ')
     df_feat = df_feat.sort_values('Kepentingan', ascending=False)
 
@@ -218,47 +245,35 @@ def train_and_evaluate_models(df_prov):
     X_seq, y_seq = np.array(X_seq), np.array(y_seq)
 
     split_idx_lstm = int(len(X_seq) * 0.8)
-    X_train_seq, X_test_seq = X_seq[:split_idx_lstm], X_seq[split_idx_lstm:]
-    y_train_seq, y_test_seq = y_seq[:split_idx_lstm], y_seq[split_idx_lstm:]
-
-    lstm_model = Sequential([LSTM(32, return_sequences=True, input_shape=(lookback, 1)), Dropout(0.2), GRU(16), Dense(1)])
-    lstm_model.compile(optimizer='adam', loss='mse')
-
-    lstm_future = []
-    if len(X_train_seq) > 0:
+    if len(X_train_seq := X_seq[:split_idx_lstm]) > 0:
+        y_train_seq, X_test_seq, y_test_seq = y_seq[:split_idx_lstm], X_seq[split_idx_lstm:], y_seq[split_idx_lstm:]
+        lstm_model = Sequential([LSTM(32, return_sequences=True, input_shape=(lookback, 1)), Dropout(0.2), GRU(16), Dense(1)])
+        lstm_model.compile(optimizer='adam', loss='mse')
         lstm_model.fit(X_train_seq, y_train_seq, epochs=15, batch_size=8, verbose=0)
-        lstm_pred_scaled = lstm_model.predict(X_test_seq, verbose=0)
-        lstm_pred = scaler.inverse_transform(lstm_pred_scaled).flatten()
-        y_test_lstm = scaler.inverse_transform(y_test_seq).flatten()
-        lstm_mae = mean_absolute_error(y_test_lstm, lstm_pred)
+        lstm_pred = scaler.inverse_transform(lstm_model.predict(X_test_seq, verbose=0)).flatten()
+        lstm_mae = mean_absolute_error(scaler.inverse_transform(y_test_seq).flatten(), lstm_pred)
 
-        if len(harga_scaled) >= lookback:
-            curr_seq = harga_scaled[-lookback:].reshape(1, lookback, 1)
-            for _ in range(future_steps):
-                p = lstm_model.predict(curr_seq, verbose=0)
-                lstm_future.append(p[0,0])
-                curr_seq = np.append(curr_seq[:, 1:, :], [p], axis=1)
-            lstm_future = scaler.inverse_transform(np.array(lstm_future).reshape(-1,1)).flatten().tolist()
+        curr_seq = harga_scaled[-lookback:].reshape(1, lookback, 1)
+        lstm_future = []
+        for _ in range(future_steps):
+            p = lstm_model.predict(curr_seq, verbose=0)
+            lstm_future.append(p[0,0])
+            curr_seq = np.append(curr_seq[:, 1:, :], [p], axis=1)
+        lstm_future = scaler.inverse_transform(np.array(lstm_future).reshape(-1,1)).flatten().tolist()
     else:
-        lstm_mae, lstm_pred, y_test_lstm = float('inf'), [], []
-        lstm_future = [0]*future_steps
+        lstm_mae, lstm_pred, lstm_future = float('inf'), [], [0]*future_steps
 
     models_eval = {
         'Random Forest': {'mae': rf_mae, 'pred': rf_pred, 'y_test': y_test, 'forecast': rf_future},
         'Gradient Boosting': {'mae': gb_mae, 'pred': gb_pred, 'y_test': y_test, 'forecast': gb_future}
     }
     if lstm_mae != float('inf'):
-        models_eval['LSTM & GRU'] = {'mae': lstm_mae, 'pred': lstm_pred, 'y_test': y_test_lstm, 'forecast': lstm_future}
+        models_eval['LSTM & GRU'] = {'mae': lstm_mae, 'pred': lstm_pred, 'y_test': y_test, 'forecast': lstm_future}
 
     best_model_name = min(models_eval, key=lambda k: models_eval[k]['mae'])
     return best_model_name, models_eval, split_idx, df_prov, rincian_features, df_feat, future_dates
 
-# Run ML Pipeline
 best_model_name, models_eval, split_idx, df_prov, rincian_features, df_feat, future_dates = train_and_evaluate_models(df_filtered)
-
-if not best_model_name:
-    st.error("Data terlalu sedikit untuk melakukan permodelan AI.")
-    st.stop()
 
 best_mae = models_eval[best_model_name]['mae']
 best_pred = models_eval[best_model_name]['pred']
@@ -270,7 +285,6 @@ col1, col2 = st.columns([7, 3])
 
 with col1:
     st.subheader(f"📊 Analisis Spasio-Temporal: {prov_terpilih}")
-
     st.markdown(f"##### 🗺️ Visualisasi Peta ({minggu_peta})")
     df_map = df_all[df_all['Tanggal_Str'] == minggu_peta]
 
@@ -306,114 +320,45 @@ with col1:
     st.plotly_chart(fig_line, use_container_width=True)
 
     st.markdown("###### 📑 Tabel Komparasi Validasi Ilmiah Performa Model")
-    metrics_list = []
-    for model_name, model_data in models_eval.items():
-        metrics_list.append({
-            "Model Algoritma": model_name,
-            "Mean Absolute Error (MAE)": model_data['mae'],
-            "Margin Kesalahan (Error)": f"± Rp {model_data['mae']:,.0f}",
-            "Status Seleksi": "🏆 TERBAIK (Dipilih Otomatis)" if model_name == best_model_name else "Alternatif"
-        })
-    df_metrics = pd.DataFrame(metrics_list).sort_values(by="Mean Absolute Error (MAE)").reset_index(drop=True)
-    df_metrics["Mean Absolute Error (MAE)"] = df_metrics["Mean Absolute Error (MAE)"].map(lambda x: f"Rp {x:,.2f}")
-    st.dataframe(df_metrics, use_container_width=True)
+    metrics_list = [{"Model Algoritma": k, "Mean Absolute Error (MAE)": f"Rp {v['mae']:,.2f}", "Margin Kesalahan (Error)": f"± Rp {v['mae']:,.0f}", "Status Seleksi": "🏆 TERBAIK" if k == best_model_name else "Alternatif"} for k, v in models_eval.items()]
+    st.dataframe(pd.DataFrame(metrics_list), use_container_width=True)
 
     col_ext1, col_ext2 = st.columns(2)
     with col_ext1:
         st.markdown(f"##### 🌧️ Curah Hujan & Momen")
         fig_ext = go.Figure()
         fig_ext.add_trace(go.Bar(x=df_prov['Tanggal'], y=df_prov['Curah_Hujan'], name='Curah Hujan (mm)', marker_color='lightblue'))
-        df_hbkn = df_prov[df_prov['hbkn'] == 1]
-        if not df_hbkn.empty:
-            y_pos = df_prov['Curah_Hujan'].max() * 1.1
-            fig_ext.add_trace(go.Scatter(x=df_hbkn['Tanggal'], y=[y_pos]*len(df_hbkn), mode='markers+text',
-                                         name='Momen HBKN', marker=dict(color='red', size=10, symbol='star'),
-                                         text=df_hbkn['Momen'], textposition='top center', textfont=dict(size=10)))
-        fig_ext.update_layout(margin=dict(t=10, b=0), height=250, barmode='overlay')
         st.plotly_chart(fig_ext, use_container_width=True)
-
     with col_ext2:
         st.markdown(f"##### Tingkat Pengaruh Variabel (Feature Importance)")
         fig_feat = px.bar(df_feat, x='Kepentingan', y='Faktor', orientation='h', color='Kepentingan', color_continuous_scale='Blues')
         fig_feat.update_layout(margin=dict(l=0, r=20, t=10, b=0), height=250, coloraxis_showscale=False, xaxis_title="Bobot Pengaruh", yaxis_title="")
         st.plotly_chart(fig_feat, use_container_width=True)
 
-# --- 5. PANEL KONSULTAN AI (CHAT INTERACTION) ---
+# --- 5. PANEL KONSULTAN AI ---
 with col2:
-    col_judul, col_btn = st.columns([6, 4])
-    with col_judul:
-        st.subheader("🤖 Chat AI")
-    with col_btn:
-        if st.button("🗑️ Bersihkan", use_container_width=True):
-            st.session_state.messages = []
-            st.rerun()
-
-    if "messages" not in st.session_state: 
+    st.subheader("🤖 Chat AI")
+    if st.button("🗑️ Bersihkan"):
         st.session_state.messages = []
+        st.rerun()
 
-    # Tampilkan Histori Pesan
+    if "messages" not in st.session_state: st.session_state.messages = []
     for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]): 
-            st.markdown(msg["content"])
+        with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    # Tangkap Input Baru dari chat_input bawaan Streamlit
     prompt = st.chat_input("Tanya AI Konsultan...")
-
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"): 
-            st.markdown(prompt)
-            
+        with st.chat_message("user"): st.markdown(prompt)
         with st.chat_message("assistant"):
-            if not api_key: 
-                st.warning("⚠️ Masukkan OpenAI API Key di Sidebar untuk berinteraksi.")
+            if not api_key:
+                st.warning("⚠️ Masukkan OpenAI API Key di Sidebar.")
             else:
                 try:
                     client = OpenAI(api_key=api_key)
-
-                    deviasi_terakhir = df_prov['Deviasi_HET'].iloc[-1]
-                    harga_terakhir = df_prov['Harga_Riil'].iloc[-1]
-                    harga_minggu_lalu = df_prov['Harga_Minggu_Lalu'].iloc[-1]
-                    rata_nasional = df_prov['Rata_Nasional'].iloc[-1]
-                    deviasi_nasional = df_prov['Deviasi_Nasional'].iloc[-1]
-                    curah_hujan_terakhir = df_prov['Curah_Hujan'].iloc[-1]
-                    momen_terakhir = df_prov['Momen'].iloc[-1]
-
-                    if harga_terakhir > harga_minggu_lalu: 
-                        status_tren = "NAIK 📈 (Memburuk)"
-                    elif harga_terakhir < harga_minggu_lalu: 
-                        status_tren = "TURUN 📉 (Membaik)"
-                    else: 
-                        status_tren = "STABIL ➖"
-                    selisih_tren = abs(harga_terakhir - harga_minggu_lalu)
-
-                    teks_forecast = ", ".join([f"Rp {p:,.0f}" for p in best_forecast])
-
-                    system_prompt = f"""
-                    Anda adalah Konsultan AI spesialis Ketahanan Pangan Nasional.
-                    Konteks Mikro & Spasial:
-                    1. Wilayah: {prov_terpilih}
-                    2. Harga Aktual: Rp {harga_terakhir:,.0f} (Sedang {status_tren} sebesar Rp {selisih_tren:,.0f} dari minggu lalu).
-                    3. Kepatuhan HET: {'Melanggar' if deviasi_terakhir > 0 else 'Aman'}, selisih Rp {abs(deviasi_terakhir):,.0f}
-                    4. Deviasi Nasional: Harga berjarak Rp {deviasi_nasional:,.0f} dari tren rata-rata nasional.
-                    5. Cuaca: Curah Hujan {curah_hujan_terakhir:.1f} mm. Momentum: "{momen_terakhir}".
-
-                    Konteks Makro & FORECASTING JANGKA MENENGAH:
-                    6. Prediksi AI ({best_model_name}): Memproyeksikan harga 2 BULAN (8 MINGGU) KE DEPAN secara berturut-turut akan menjadi: {teks_forecast}.
-                    7. Ekstraksi Fitur Lengkap (Feature Importance): Rincian kontribusi pengaruh setiap variabel secara statistik di daerah ini adalah: {rincian_features}.
-
-                    TUGAS: Analisis keterkaitan rincian bobot pengaruh statistik tersebut dengan tren proyeksi 2 bulan ke depan. Berikan rekomendasi mitigasi rantai pasok struktural yang spesifik dan taktis.
-                    """
+                    system_prompt = f"Anda adalah Konsultan AI spesialis Ketahanan Pangan Nasional untuk wilayah {prov_terpilih}. Tren fitur: {rincian_features}."
                     messages_for_api = [{"role": "system", "content": system_prompt}] + st.session_state.messages
-
                     stream = client.chat.completions.create(model="gpt-4o-mini", messages=messages_for_api, stream=True)
-                    message_placeholder = st.empty()
-                    full_response = ""
-                    for chunk in stream:
-                        if chunk.choices[0].delta.content is not None:
-                            full_response += chunk.choices[0].delta.content
-                            message_placeholder.markdown(full_response + "▌")
-                    message_placeholder.markdown(full_response)
-                    st.session_state.messages.append({"role": "assistant", "content": full_response})
-                except Exception as e: 
-                    st.error(f"Error API: {str(e)}")
+                    response = st.write_stream(stream)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+                except Exception as e: st.error(f"Error API: {e}")
