@@ -3,7 +3,7 @@ pandas
 numpy
 plotly
 scikit-learn
-tensorflow
+tensorflow-cpu
 openai
 geopandas
 requests
