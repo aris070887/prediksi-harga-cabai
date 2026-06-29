@@ -132,7 +132,7 @@ with st.spinner("Memproses penyatuan pulau spasial & waktu..."):
 
 # --- 2. SIDEBAR FILTER ---
 with st.sidebar:
-    st.header("âš™ï¸ Konfigurasi Utama")
+    st.header("Konfigurasi Utama")
     api_key = st.text_input("OpenAI API Key (Opsional):", type="password")
 
     provinsi_list = sorted(df_all['Provinsi'].unique())
@@ -311,7 +311,7 @@ with col1:
         metrics_list.append({
             "Model Algoritma": model_name,
             "Mean Absolute Error (MAE)": model_data['mae'],
-            "Margin Kesalahan (Error)": f"Â± Rp {model_data['mae']:,.0f}",
+            "Margin Kesalahan (Error)": f"± Rp {model_data['mae']:,.0f}",
             "Status Seleksi": "ðŸ† TERBAIK (Dipilih Otomatis)" if model_name == best_model_name else "Alternatif"
         })
     df_metrics = pd.DataFrame(metrics_list).sort_values(by="Mean Absolute Error (MAE)").reset_index(drop=True)
@@ -366,7 +366,7 @@ with col2:
             
         with st.chat_message("assistant"):
             if not api_key: 
-                st.warning("âš ï¸ Masukkan OpenAI API Key di Sidebar untuk berinteraksi.")
+                st.warning("Masukkan OpenAI API Key di Sidebar untuk berinteraksi.")
             else:
                 try:
                     client = OpenAI(api_key=api_key)
@@ -384,7 +384,7 @@ with col2:
                     elif harga_terakhir < harga_minggu_lalu: 
                         status_tren = "TURUN ðŸ“‰ (Membaik)"
                     else: 
-                        status_tren = "STABIL âž–"
+                        status_tren = "STABIL –"
                     selisih_tren = abs(harga_terakhir - harga_minggu_lalu)
 
                     teks_forecast = ", ".join([f"Rp {p:,.0f}" for p in best_forecast])
